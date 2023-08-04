@@ -1,6 +1,7 @@
 package com.example.petproject.kafka;
 
 import com.example.petproject.payload.User;
+import org.apache.kafka.common.KafkaException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.kafka.core.KafkaTemplate;
@@ -21,6 +22,7 @@ public class RedisKafkaProducer {
     }
 
     public void sendMessage(User user){
+//        throw new KafkaException("Ошибка при отправке сообщения в Kafka");
         LOGGER.info(String.format("Producer отправил Json сообщение -> %s", user.toString()));
 
         Message<User> message = MessageBuilder

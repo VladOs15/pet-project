@@ -2,13 +2,27 @@ package com.example.petproject.controller;
 
 import com.example.petproject.kafka.KafkaProducer;
 import com.example.petproject.payload.User;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import redis.clients.jedis.Connection;
+
+import java.sql.DriverManager;
+import java.sql.SQLException;
 
 @RestController
 @RequestMapping("/api/v1/kafka_post")
 public class MessageController {
-    private KafkaProducer kafkaProducer;
+    private final KafkaProducer kafkaProducer;
+
+    @Value("${spring.datasource.url}")
+    private String databaseUrl;
+
+    @Value("${spring.datasource.username}")
+    private String databaseUsername;
+
+    @Value("${spring.datasource.password}")
+    private String databasePassword;
 
     public MessageController(KafkaProducer kafkaProducer) {
         this.kafkaProducer = kafkaProducer;
@@ -26,5 +40,14 @@ public class MessageController {
     public ResponseEntity<String> publishToPostgres(@RequestBody User user){
         kafkaProducer.sendMessage(user);
         return ResponseEntity.ok("Сообщение Json отправленно в topic: " + user);
+    }
+
+    private boolean isDatabaseConnected() {
+        try {
+            Connection connection = (Connection) DriverManager.getConnection(databaseUrl, databaseUsername, databasePassword);
+            return true;
+        } catch (SQLException e) {
+            return false;
+        }
     }
 }

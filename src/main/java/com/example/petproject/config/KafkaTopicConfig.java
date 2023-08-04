@@ -17,4 +17,10 @@ public class KafkaTopicConfig {
         return TopicBuilder.name("kafka_topic_json")
                 .build();
     }
+
+    @Bean
+    public NewTopic topicError(){
+        return TopicBuilder.name("error-topic")
+                .build();
+    }
 }
