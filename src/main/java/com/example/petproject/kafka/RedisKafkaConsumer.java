@@ -4,7 +4,6 @@ import com.example.petproject.payload.User;
 import com.example.petproject.repository.UserDao;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Service;
 
