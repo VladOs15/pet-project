@@ -1,6 +1,9 @@
 package com.example.petproject.payload;
 
 import javax.persistence.*;
+import javax.validation.constraints.Min;
+import javax.validation.constraints.NotBlank;
+import javax.validation.constraints.Positive;
 import java.io.Serializable;
 
 @Entity
@@ -10,8 +13,12 @@ public class User implements Serializable {
     @Id
     @GeneratedValue(strategy = GenerationType.AUTO)
     private Long id;
+    @NotBlank(message = "Имя пользователя указано не верно")
     private String name;
+    @Positive(message = "Возраст должен быть положительным")
+    @Min(value = 18, message = "Возраст должен быть больше 18")
     private int age;
+    @NotBlank(message = "Должность пользователя не указана")
     private String work;
 
     public Long getId() {

@@ -1,5 +1,8 @@
 package com.example.petproject.controller;
 
+import com.example.petproject.Exception.InvalidJsonFormatException;
+import com.example.petproject.Exception.KafkaConnectionException;
+import com.example.petproject.Exception.RedisConnectException;
 import com.example.petproject.kafka.RedisKafkaProducer;
 import com.example.petproject.payload.User;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -10,34 +13,42 @@ import org.apache.kafka.clients.producer.KafkaProducer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.kafka.core.KafkaTemplate;
+import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import redis.clients.jedis.Jedis;
 
+import javax.validation.Valid;
 import java.util.Properties;
 import java.util.Set;
 import java.util.concurrent.ExecutionException;
 
 
+@Validated
 @RestController
 @RequestMapping("/api/v1/kafka_post")
 public class RedisMessageController {
     private final RedisKafkaProducer kafkaProducer;
     @Autowired
     private KafkaTemplate<String, String> kafkaTemplate;
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    private final ObjectMapper objectMapper;
     private static final Logger LOGGER = LoggerFactory.getLogger(RedisMessageController.class);
     private static final String TOPIC = "kafka_topic_json";
-
     private static final String ERROR_TOPIC = "error-topic";
+    @Value("${spring.redis.host}")
+    private String redisHost;
+    @Value("${spring.redis.port}")
+    private int redisPort;
 
     public RedisMessageController(RedisKafkaProducer KafkaProducer) {
         this.kafkaProducer = KafkaProducer;
+        this.objectMapper = new ObjectMapper();
     }
 
     /*
@@ -50,36 +61,44 @@ public class RedisMessageController {
     }
     */
     @PostMapping("/publish/redis")
-    public ResponseEntity<String> publishToRedis(@RequestBody User user){
+    public ResponseEntity<String> publishToRedis(@RequestBody @Valid User user){
         try {
             if(!isKafkaConnected()){
                 handleKafkaError(user);
-                return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("Ошибка: Отсутствует подключение к Kafka.");
+                throw new KafkaConnectionException("Отсутсвует подключение к Kafka.");
             }
 
             if(!isRedisConnected()){
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("Ошибка: Отсутствует подключение к Redis.");
+                throw new RedisConnectException("Отсутсвует подключение к Redis.");
             }
 
             try {
                 objectMapper.readTree(objectMapper.writeValueAsString(user));
-
                 if (user.getName() == null || user.getName().isEmpty()){
                     return ResponseEntity.badRequest().body("Имя пользователя не указано");
                 }
-                if (user.getAge() <= 0){
+                if (user.getAge() <= 17){
                     return ResponseEntity.badRequest().body("Неверный возраст пользователя");
                 }
                 if (user.getWork() == null || user.getWork().isEmpty()){
                     return ResponseEntity.badRequest().body("Должность пользователя не указана");
                 }
                 kafkaProducer.sendMessage(user);
-                return ResponseEntity.ok(String.format("Сообщение Json отправленно в topic: %s", user));
+                return ResponseEntity.ok(String.format("Сообщение Json отправлено в topic: %s", user));
             } catch (JsonProcessingException e){
-                return ResponseEntity.status(HttpStatus.BAD_REQUEST).body("Ошибка: невалидный JSON формат");
+                throw new InvalidJsonFormatException("Ошибка: невалидный JSON формат " + e.getOriginalMessage().substring((int) e.getLocation().getCharOffset()), e);
             }
+        } catch (KafkaConnectionException e){
+            LOGGER.error("Ошибка при отправке сообщения в Kafka: ", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("Ошибка при отправке сообщения: " + e.getMessage());
+        } catch (RedisConnectException e){
+            LOGGER.error("Ошибка при отправке сообщения в Redis: ", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("Ошибка при отправке сообщения: " + e.getMessage());
+        } catch (InvalidJsonFormatException e){
+            LOGGER.error("Ошибка при отправке сообщения в JSON формате: ", e);
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body("Ошибка при отправке сообщения в JSON формате: " + e.getMessage());
         } catch (Exception e){
-            LOGGER.error("Ошибка при отправке сообщения: ", e.getMessage());
+            LOGGER.error("Ошибка при отправке сообщения: ", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("Произошла ошибка: " + e.getMessage());
         }
     }
@@ -89,11 +108,11 @@ public class RedisMessageController {
      * @return true, если подключение успешно установлено, иначе false.
      */
     private boolean isRedisConnected() {
-        try (Jedis jedis = new Jedis("localhost", 6379)){
+        try (Jedis jedis = new Jedis(redisHost, redisPort)){
             if (jedis.ping().equals("PONG")) {
                 return true;
             } else {
-                LOGGER.error("Ошибка подключения к Redis: Ответ не равен PONG");
+                LOGGER.error(String.format("Ошибка подключения к Redis: Ответ не равен PONG, ответ: %s", jedis.ping()));
                 return false;
             }
         } catch (Exception e) {
@@ -113,21 +132,26 @@ public class RedisMessageController {
         properties.put("value.serializer", "org.apache.kafka.common.serialization.StringSerializer");
 
         try (KafkaProducer<String, String> producer = new KafkaProducer<>(properties)){
-            return isTopicExists(TOPIC, properties);
+            AdminClient adminClient = AdminClient.create(properties);
+            if (isTopicExists(TOPIC, adminClient)) {
+                return true;
+            } else {
+                LOGGER.error("Ошибка подключения к Kafka: Топик " + TOPIC + " не существует");
+                return false;
+            }
         } catch (Exception e) {
             LOGGER.error("Ошибка подключения к Kafka: " + e.getMessage(), e);
             return false;
         }
     }
 
-    private boolean isTopicExists(String topic, Properties properties) {
+    private boolean isTopicExists(String topic, AdminClient adminClient) {
         try {
-            AdminClient adminClient = AdminClient.create(properties);
             ListTopicsResult topicsResult = adminClient.listTopics();
             Set<String> topicNames = topicsResult.names().get();
             return topicNames.contains(topic);
         } catch (InterruptedException | ExecutionException e) {
-            LOGGER.error("Топик " + TOPIC + " не существует", e);
+            LOGGER.error("Ошибка при проверке наличия топика: " + topic, e);
             return false;
         }
     }
