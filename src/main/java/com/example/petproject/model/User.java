@@ -1,4 +1,4 @@
-package com.example.petproject.payload;
+package com.example.petproject.model;
 
 import javax.persistence.*;
 import javax.validation.constraints.Min;

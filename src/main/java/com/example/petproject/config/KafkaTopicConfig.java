@@ -25,4 +25,10 @@ public class KafkaTopicConfig {
         return TopicBuilder.name("error-topic")
                 .build();
     }
+
+    @Bean
+    public NewTopic topicTest(){
+        return TopicBuilder.name("test-topic")
+                .build();
+    }
 }
