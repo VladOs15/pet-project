@@ -10,6 +10,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import javax.validation.ValidationException;
 import java.util.List;
 import java.util.Optional;
 
@@ -39,13 +40,7 @@ public class MessageController {
     public ResponseEntity<String> publishToPostgres(@RequestBody User user){
         try {
             objectMapper.readTree(objectMapper.writeValueAsString(user));
-            if (user.getName() == null
-                    || user.getName().isEmpty()
-                    || user.getAge() <= 0
-                    || user.getWork() == null
-                    || user.getWork().isEmpty()) {
-                return ResponseEntity.badRequest().body("Данные введены не верно");
-            }
+            validateUserData(user);
             kafkaProducer.sendMessage(user);
             return ResponseEntity.ok(String.format("Сообщение Json отправлено в topic: %s", user));
         } catch (Exception e){
@@ -65,11 +60,21 @@ public class MessageController {
     public ResponseEntity<String> remove(@PathVariable Long id){
         Optional<User> userOptional = userRepo.findById(id);
 
-        if(userOptional.isPresent()){
-            userRepo.deleteById(id);
-            return ResponseEntity.ok("Пользователь с ID: " + id + " был удален");
-        } else {
+        if(!userOptional.isPresent()){
             return ResponseEntity.ok("Пользователь с ID: " + id + " не найден");
+        }
+
+        userRepo.deleteById(id);
+        return ResponseEntity.ok("Пользователь с ID: " + id + " был удален");
+    }
+
+    private void validateUserData(User user) throws ValidationException {
+        if (user.getName() == null
+                || user.getName().isEmpty()
+                || user.getAge() <= 0
+                || user.getWork() == null
+                || user.getWork().isEmpty()) {
+            throw new ValidationException("Данные введены не верно");
         }
     }
 }

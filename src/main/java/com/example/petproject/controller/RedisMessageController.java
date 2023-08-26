@@ -3,6 +3,7 @@ package com.example.petproject.controller;
 import com.example.petproject.kafka.RedisKafkaProducer;
 import com.example.petproject.model.User;
 import com.example.petproject.repository.UserDao;
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -12,6 +13,7 @@ import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
 import javax.validation.Valid;
+import javax.validation.ValidationException;
 
 @Validated
 @RestController
@@ -41,15 +43,15 @@ public class RedisMessageController {
     public ResponseEntity<String> publishToRedis(@RequestBody @Valid User user){
         try {
             objectMapper.readTree(objectMapper.writeValueAsString(user));
-            if (user.getName() == null
-                    || user.getName().isEmpty()
-                    || user.getAge() <= 0
-                    || user.getWork() == null
-                    || user.getWork().isEmpty()) {
-                return ResponseEntity.badRequest().body("Данные введены не верно");
-            }
+            validateUserData(user);
             kafkaProducer.sendMessage(user);
             return ResponseEntity.ok(String.format("Сообщение Json отправлено в topic: %s", user));
+        } catch (JsonProcessingException e){
+            LOGGER.error("Ошибка при преобразовании объекта: ", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("Ошибка при преобразовании объекта: " + e.getMessage());
+        } catch (ValidationException e){
+            LOGGER.error("Ошибка валидации данных: ", e);
+            return ResponseEntity.badRequest().body(e.getMessage());
         } catch (Exception e){
             LOGGER.error("Ошибка при отправке сообщения: ", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("Произошла ошибка: " + e.getMessage());
@@ -60,10 +62,16 @@ public class RedisMessageController {
     @GetMapping("/user")
     public ResponseEntity<String> getUserFromRedis() {
         String user = userDao.getUserFromRedis();
-        if (user != null) {
-            return ResponseEntity.ok(user);
-        } else {
-            return ResponseEntity.notFound().build();
+        return user != null ? ResponseEntity.ok(user) : ResponseEntity.notFound().build();
+    }
+
+    private void validateUserData(User user) throws ValidationException{
+        if (user.getName() == null
+                || user.getName().isEmpty()
+                || user.getAge() <= 0
+                || user.getWork() == null
+                || user.getWork().isEmpty()) {
+            throw new ValidationException("Данные введены не верно");
         }
     }
 }
